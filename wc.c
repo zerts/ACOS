@@ -199,6 +199,7 @@ int main()
         printf("№%d - %d \n", i, resultPairs[i].second);
     }
 
+    free(arg);
     free(resultPairs);
     munmap(addr,  size);
 	close(fd);
