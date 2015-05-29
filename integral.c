@@ -39,7 +39,7 @@ float integral(double left, double right, char * fileName, char * functionName)
 
 int main(int argc, char **argv)
 {
-    int numberOfParts = 5;
+    int numberOfParts = 4;
     if (argc != 5)
     {
         detectError("Not all arguments");
