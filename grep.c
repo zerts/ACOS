@@ -46,11 +46,6 @@ int has(char* temp)
             {
                 break;
             }
-            if (i + j > sizeof(currString) || i > sizeof(temp))
-            {
-                detectError("bad indexes in function has");
-                exit(0);
-            }
             if (currString[i + j] != temp[i])
             {
                 break;
