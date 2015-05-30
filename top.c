@@ -29,22 +29,23 @@ int charIsNumber (char c)
 struct process
 {
     int number;
-    long unsigned int usedMemory;
+    long long usedMemory;
     double timeUsed;
     char * name;
 };
 
 char * path;
 struct process processes[MAX_NUMBER_OF_PROC];
+double predTime[MAX_NUMBER_OF_PROC];
 int numberOfProc;
 
 void printProc(int i, struct process currProc)
 {
-    printf("#%2d ", i);
+    printf("#%2d: ", i);
     printf("%4d ", currProc.number);
     printf("%20s ", currProc.name);
     printf("%.3f ", currProc.timeUsed);
-    printf("%lu\n", currProc.usedMemory);
+    printf("%lld\n", currProc.usedMemory);
 }
 void getInformationAboutProcess(struct dirent * currProc)
 {
@@ -85,25 +86,28 @@ void getInformationAboutProcess(struct dirent * currProc)
             detectError("scanf failed with reading useless info");
             return;
         }
-    long unsigned int utime, stime;
-    if (fscanf(stats, "%lu %lu", &utime, &stime) != 2)
+    long long utime, stime;
+    if (fscanf(stats, "%lld %lld", &utime, &stime) != 2)
     {
         detectError("scanf failed with reading time info");
         return;
     }
-    processes[numberOfProc].timeUsed = (double)((utime + stime) / sysconf(_SC_CLK_TCK));
+    processes[numberOfProc].timeUsed = (double)(utime + stime) / sysconf(_SC_CLK_TCK) - predTime[processes[numberOfProc].number];
+    predTime[processes[numberOfProc].number] = (double)(utime + stime) / sysconf(_SC_CLK_TCK);
     for (int i = 16; i < 23; i++)
         if (fscanf(stats, "%s", uselessInfo) != 1)
         {
             detectError("scanf failed with reading useless info");
             return;
         }
-    if (fscanf(stats, "%lu ", &(processes[numberOfProc].usedMemory)) != 1)
+    if (fscanf(stats, "%lld ", &(processes[numberOfProc].usedMemory)) != 1)
     {
         detectError("scanf failed with reading memory info");
         return;
     }
-    //printProc(processes[numberOfProc]);
+
+    free(path);
+    free(uselessInfo);
     fclose(stats);
 }
 
@@ -118,32 +122,36 @@ int compareProcess (const void * first, const void * second)
 
 int main()
 {
-    DIR * dir;
-	struct dirent * proc;
-    dir = opendir("/proc");
-	if (dir == NULL)
+	for (int j = 0; j < 2; j++)
 	{
-        detectError("opendir failed");
-        return 0;
-	}
-	numberOfProc = 0;
-	while (proc = readdir(dir))
-	{
-        if (proc == NULL)
+        DIR * dir;
+        dir = opendir("/proc");
+        if (dir == NULL)
         {
-            detectError("readdir in main failed");
+            detectError("opendir failed");
             return 0;
         }
-		if (charIsNumber(proc->d_name[0]) == 1)
-		{
-            getInformationAboutProcess(proc);
-            numberOfProc++;
-		}
-	}
-	if (closedir(dir) == -1)
-	{
-        detectError("main closedir failed");
-        return 0;
+        numberOfProc = 0;
+        struct dirent * proc;
+        while (proc = readdir(dir))
+        {
+            if (proc == NULL)
+            {
+                detectError("readdir in main failed");
+                return 0;
+            }
+            if (charIsNumber(proc->d_name[0]) == 1)
+            {
+                getInformationAboutProcess(proc);
+                numberOfProc++;
+            }
+        }
+        if (closedir(dir) == -1)
+        {
+            detectError("main closedir failed");
+            return 0;
+        }
+        sleep(1);
 	}
     qsort(processes, numberOfProc, sizeof(struct process), compareProcess);
     printf("--------------------------------------------------------\n");
@@ -152,5 +160,9 @@ int main()
         printProc(i + 1, processes[i]);
     }
     printf("--------------------------------------------------------\n");
+    for (int i = 0; i < numberOfProc; i++)
+    {
+        free(processes[i].name);
+    }
 	return 0;
 }
