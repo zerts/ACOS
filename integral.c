@@ -28,7 +28,13 @@ float integral(double left, double right, char * fileName, char * functionName)
         detectError("Bad function");
         exit(0);
     }
-    double result = (right - left) * f((left + right) / 2.);
+    double result = 0., _left, _right;
+    for (int i = 0; i < 1000; i++)
+    {
+        _left = left + ((right - left) / 1000.) * (double)i;
+        _right = _left + ((right - left) / 1000.);
+        result += (_right - _left) * f((_left + _right) / 2.)
+    }
     if(dlclose(lib) != 0)
     {
         detectError("dlclose failed");
@@ -110,3 +116,4 @@ int main(int argc, char **argv)
 
 //compile: gcc integral.h -std=gnu99 -ldl
 //run: ./a.out 0 1 /lib/x86_64-linux-gnu/libm.so.6 cos
+
