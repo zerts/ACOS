@@ -37,6 +37,7 @@ struct process
 char * path;
 struct process processes[MAX_NUMBER_OF_PROC];
 double predTime[MAX_NUMBER_OF_PROC];
+int activeProc[MAX_NUMBER_OF_PROC];
 int numberOfProc;
 
 void printProc(int i, struct process currProc)
@@ -73,7 +74,7 @@ void getInformationAboutProcess(struct dirent * currProc)
         detectError("scanf failed with reading name and pid");
         return;
     }
-    //printf("%d %s\n", processes[numberOfProc].number, processes[numberOfProc].name);
+    activeProc[processes[numberOfProc].number] = 1;
     char * uselessInfo = malloc(30 * sizeof(char));
     if (uselessInfo == NULL)
     {
@@ -124,6 +125,10 @@ int main()
 {
 	for (int j = 0; j < 2; j++)
 	{
+        for (int i = 0; i < MAX_NUMBER_OF_PROC; i++)
+        {
+            activeProc[i] = 0;
+        }
         DIR * dir;
         dir = opendir("/proc");
         if (dir == NULL)
@@ -146,12 +151,18 @@ int main()
                 numberOfProc++;
             }
         }
+        for (int i = 0; i < MAX_NUMBER_OF_PROC; i++)
+        {
+            if (activeProc[i] == 0)
+                predTime[i] = 0.;
+        }
         if (closedir(dir) == -1)
         {
             detectError("main closedir failed");
             return 0;
         }
-        sleep(1);
+        if (j == 0)
+            sleep(1);
 	}
     qsort(processes, numberOfProc, sizeof(struct process), compareProcess);
     printf("--------------------------------------------------------\n");
