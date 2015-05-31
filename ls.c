@@ -37,6 +37,7 @@ void write_full_information(struct dirent * currdir, char * path)
         detectError("malloc in write_full_information failed");
         return;
     }
+    //printf("path = %s\n", path);
 	memcpy(s, path, strlen(path));
 	if (s == NULL)
     {
@@ -57,6 +58,7 @@ void write_full_information(struct dirent * currdir, char * path)
         detectError("memcpy in write_full_information failed");
         return;
     }
+    //printf("%s\n", s);
     if (stat(s, &information) == -1)
     {
         detectError("Bad file or directory");
@@ -81,7 +83,6 @@ void write_full_information(struct dirent * currdir, char * path)
         case S_IRUSR + S_IXUSR: ur = 1; ue = 1; break;
         case S_IXUSR + S_IWUSR: ue = 1; uw = 1; break;
         case S_IRUSR + S_IWUSR + S_IXUSR: ur = 1; uw = 1; ue = 1; break;
-        default: detectError("getting read/write information failed"); return;
     }
     switch (information.st_mode & S_IRWXG)
     {
@@ -92,7 +93,6 @@ void write_full_information(struct dirent * currdir, char * path)
         case S_IRGRP + S_IXGRP: gr = 1; ge = 1; break;
         case S_IXGRP + S_IWGRP: ge = 1; gw = 1; break;
         case S_IRGRP + S_IWGRP + S_IXGRP: gr = 1; gw = 1; ge = 1; break;
-        default: detectError("getting read/write information failed"); return;
     }
     switch (information.st_mode & S_IRWXO)
     {
@@ -103,7 +103,6 @@ void write_full_information(struct dirent * currdir, char * path)
         case S_IROTH + S_IXOTH: orrr = 1; oe = 1; break;
         case S_IWOTH + S_IXOTH: ow = 1; oe = 1; break;
         case S_IROTH + S_IWOTH + S_IXOTH: orrr = 1; ow = 1; oe = 1; break;
-        default: detectError("getting read/write information failed"); return;
     }
 
     if (ur == 1)
@@ -253,7 +252,7 @@ int main(int argc, char** argv)
     int opt, numberOfOptions = 0;
     while ((opt = getopt(argc, argv, "lR")) != -1)
     {
-        numberOfOptions++;
+        //numberOfOptions++;
         switch (opt)
 		{
 			case 'l':
@@ -266,23 +265,24 @@ int main(int argc, char** argv)
 				break;
 		}
     }
-    if (argc == numberOfOptions + 2)
-    {
-        mode_addr = 1;
-    }
-    else if (argc > numberOfOptions + 2)
-    {
-        detectError("bad number of arguments");
-        return 0;
-    }
 	DIR * dir;
 	struct dirent * child;
 	char * base_addr, * empty_string = "";
-	if (mode_addr == 1)
-        base_addr = argv[argc - 1];
+	if (argc > optind)
+	{
+		base_addr = argv[optind];
+		mode_addr = 1;
+    }
     else
         base_addr = "./";
     dir = opendir(base_addr);
+    if (mode_addr == 1)
+	{
+        int len = strlen(base_addr);
+        if (base_addr[len - 1] != '/')
+		base_addr = strcat(base_addr, "/");
+    }
+    printf("base_addr = %s\n", base_addr);
 	if (dir == NULL && errno != 0)
 	{
         detectError("Bad base dirrectory address");
@@ -303,7 +303,7 @@ int main(int argc, char** argv)
             }
             else if (mode_l == 1 && mode_R == 0)
             {
-                write_full_information(child, empty_string);
+                write_full_information(child, base_addr);
             }
             else if (mode_R == 1)
             {
@@ -313,7 +313,7 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    write_full_information(child, empty_string);
+                    write_full_information(child, base_addr);
                 }
                 write_child(child, base_addr, 5, mode_l);
             }
