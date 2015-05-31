@@ -49,6 +49,8 @@ void * func(void * arg)
 {
 	int part = *(int*)arg, tab = part * (size / NUMBER_OF_PARTS), currBegin = tab, oneMoreNumber = 0;
     char * currNumber = malloc(5);
+    memset(currNumber, ' ', 4);
+    currNumber[4] = '\0';
     if (currNumber == NULL)
     {
         detectError("malloc failed with string");
@@ -78,8 +80,10 @@ void * func(void * arg)
         {
             currNumberInt = atoi(currNumber);
             lengthOfCurrNumber = 0;
-            free(currNumber);
-            currNumber = malloc(5);
+            //free(currNumber);
+            //currNumber = malloc(5);
+            memset(currNumber, ' ', 4);
+            currNumber[4] = '\0';
             currResult[currNumberInt]++;
         }
         else
@@ -98,11 +102,12 @@ void * func(void * arg)
     {
         currNumberInt = atoi(currNumber);
         lengthOfCurrNumber = 0;
-        free(currNumber);
-        currNumber = malloc(5);
+        //free(currNumber);
+        //currNumber = malloc(5);
         currResult[currNumberInt]++;
-        free(currNumber);
+        //free(currNumber);
     }
+    free(currNumber);
     return (void *)currResult;
 }
 
