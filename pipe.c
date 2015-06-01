@@ -12,7 +12,7 @@
 #include <semaphore.h>
 
 #define SEMAPHORE_NAME "sem"
-#define SHARED_MEMORY_NAME "newPartOfSharedMemory"
+#define SHARED_MEMORY_NAME "PartOfSharedMemory"
 #define STRING_TO_WRITE "hello world!"
 
 const size_t SHM_SIZE = 3000;
@@ -54,7 +54,7 @@ void create_pipe(struct shared_memory ** fd)
         detectError("ftruncate failed");
         return;
     }
-    void * addr = mmap(NULL, shared_memory_size + SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fdescr, 0);
+    void * addr = mmap(NULL, sizeof(struct shared_memory) + SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fdescr, 0);
     if (addr == MAP_FAILED)
     {
         detectError("mmap faild");
@@ -70,10 +70,10 @@ void create_pipe(struct shared_memory ** fd)
     (*fd)->buf = (char *)(addr + 10 * sizeof(int) + 2 * sizeof(sem_t));
     //char sem_name[26] = SEMAPHORE_NAME;
     //sprintf(sem_name + strlen(SEMAPHORE_NAME), "%d", number_of_pipes);
-    printf("1\n");
+    //printf("1\n");
     sem_init((*fd)->semWrite, 1, 1);
     sem_init((*fd)->semRead, 1, 1);
-    printf("2\n");
+    //printf("2\n");
     if ((*fd)->semWrite == SEM_FAILED)
     {
         detectError("sem_open failed");
@@ -114,12 +114,14 @@ void writeToPipe(struct shared_memory * fd, char * buf, size_t size_of_buf)
     }
     for (size_t tab = 0; tab < size_of_buf; tab++)
     {
-        if (*(fd->end) > SHM_SIZE - 5)
+        if (*(fd->end) == SHM_SIZE)
         {
             *(fd->end) = 0;
         }
         //printf("%d\n", *(fd->end));
         (fd->buf)[*(fd->end)] = buf[tab];
+        //printf("%d = %c\n", *(fd->end), (fd->buf)[*(fd->end)]);
+        //fflush(stdout);
         *(fd->end) += 1;
     }
     if (sem_post(fd->semWrite) == -1)
@@ -131,12 +133,12 @@ void writeToPipe(struct shared_memory * fd, char * buf, size_t size_of_buf)
 
 size_t sizeOfPipe(struct shared_memory * fd)
 {
-    int result = (int)*(fd->end) - (int)*(fd->begin);
+    int result = *(fd->end) - *(fd->begin);
     if (result < 0)
     {
         result += SHM_SIZE;
     }
-    return result + 1;
+    return result;
 }
 
 int readFromPipe(struct shared_memory * fd, char * buf, size_t size_of_part_to_read)
@@ -147,7 +149,7 @@ int readFromPipe(struct shared_memory * fd, char * buf, size_t size_of_part_to_r
         return -1;
     }
     //printf("reading is coming...\n");
-    if (sem_wait(fd->semRead) == -1)
+    if (sem_wait(fd->semWrite) == -1)
     {
         detectError("sem_wait in readFromPipe failed");
         return -1;
@@ -156,15 +158,19 @@ int readFromPipe(struct shared_memory * fd, char * buf, size_t size_of_part_to_r
     if (size_of_part_to_read == 0)
         return 0;
     //printf("reading begin...\n");
-    while (*(fd->begin) != *(fd->end) && tab < size_of_part_to_read && sizeOfPipe(fd) > 0)
+    while (sizeOfPipe(fd) > 0 && tab < size_of_part_to_read)
     {
-        if (*(fd->begin) > SHM_SIZE - 5)
+        //printf("begin = %d, end = %d\n", *(fd->begin), *(fd->end));
+        if (*(fd->begin) == SHM_SIZE)
             *(fd->begin) = 0;
         buf[tab] = (fd->buf)[*(fd->begin)];
+        //printf("%d = %c\n", *(fd->begin), (fd->buf)[*(fd->begin)]);
+        //fflush(stdout);
         *(fd->begin) += 1;
         tab++;
     }
-    if (sem_post(fd->semRead) == -1)
+    //printf("reading end!\n");
+    if (sem_post(fd->semWrite) == -1)
     {
         detectError("sem_post in readFromPipe failed");
         return -1;
@@ -177,21 +183,19 @@ int main()
     struct shared_memory * fd = malloc(sizeof(struct shared_memory));
     create_pipe(&fd);
     char a = '1';
+    int total = 1000 * strlen(STRING_TO_WRITE), already_done = 0;
     pid_t t = fork();
     if (t == 0)
     {
         for (int i = 0; i < 1000; i++)
         {
-            //printf("%d\n", i);
             writeToPipe(fd, STRING_TO_WRITE, strlen(STRING_TO_WRITE));
         }
-        //printf("writing is over!\n");
     }
     else
     {
-        int total = 1000 * strlen(STRING_TO_WRITE), already_done = 0;
-        printf("%d\n", total);
-        char * buf = malloc(total);
+        //printf("%d\n", total);
+        char * buf = malloc(total * sizeof(char));
         if (buf == NULL)
         {
             detectError("mallok in child process failed");
@@ -202,9 +206,12 @@ int main()
         {
             //printf("wait...\n");
             already_done += readFromPipe(fd, buf + already_done, total - already_done);
-            printf("already_done = %d\n", already_done);
+            //printf("already_done = %d\n", already_done);
         }
+        //sleep(1);
         buf[total] = '\0';
+        //write(STDOUT_FILENO, buf, total);
+        //printf("\n");
         printf("buf = %s\n", buf);
         deletePipe(fd);
         return 0;
