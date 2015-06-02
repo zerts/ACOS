@@ -9,7 +9,7 @@
 #include <pthread.h>
 #include <errno.h>
 
-const int NUMBER_OF_NUMBERS = 1000, NUMBER_OF_PARTS = 5, NUMBER_OF_PRINTED = 10;
+const int NUMBER_OF_NUMBERS = 1000, NUMBER_OF_PARTS = 5, NUMBER_OF_PRINTED = 10, NUMBER_OF_NUMBER_IN_FILE = 1000000;
 ssize_t size;
 int currsize = 0, error;
 void * addr;
@@ -72,7 +72,10 @@ void * func(void * arg)
             tab++;
         tab++;
     }
-    while (tab - currBegin < size / NUMBER_OF_PARTS || ((tab - currBegin >= size / NUMBER_OF_PARTS) && (charIsDigit(*(char*)(addr + tab)))))
+    int sizeOfCurrPart = size / NUMBER_OF_PARTS;
+    if (part == NUMBER_OF_PARTS - 1)
+        sizeOfCurrPart = size - (size / NUMBER_OF_PARTS) * (NUMBER_OF_PARTS - 1);
+    while (tab - currBegin < sizeOfCurrPart || ((tab - currBegin >= size / NUMBER_OF_PARTS) && (charIsDigit(*(char*)(addr + tab)))))
     {
         if (tab - currBegin >= size / NUMBER_OF_PARTS)
             oneMoreNumber = 1;
@@ -119,10 +122,10 @@ int main()
         detectError("fopen failed");
         return 0;
 	}
-    for (int i = 0; i < NUMBER_OF_NUMBERS; i++)
+    for (int i = 0; i < NUMBER_OF_NUMBER_IN_FILE; i++)
     {
         fprintf(f, "%d", rand() % NUMBER_OF_NUMBERS);
-        if (i != NUMBER_OF_NUMBERS - 1)
+        if (i != NUMBER_OF_NUMBER_IN_FILE - 1)
             fprintf(f, " ");
     }
 	fprintf(f, "\n");
@@ -192,11 +195,14 @@ int main()
         detectError("creating pair array failed");
         return 0;
     }
+    int total = 0;
     for (int i = 0; i < NUMBER_OF_NUMBERS; i++)
     {
+        total += result[i];
         resultPairs[i].first = result[i];
         resultPairs[i].second = i;
     }
+    printf("total = %d\n", total);
     qsort(resultPairs, NUMBER_OF_NUMBERS, sizeof(struct pair), comparePairs);
 
     for (int i = 0; i < NUMBER_OF_PRINTED; i++)
