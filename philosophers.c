@@ -53,20 +53,10 @@ void getStick(int sig)
         printf("#%d-%d ", i, numberOfEatenParts[i]);
     }
     printf("\n");
-    if (rand() % 2)
-    {
-        hasRightStick = 0;
-        kill(pid[(philosopherNumber + 1) % numberOfPhilosophers], SIGUSR1);
-        hasLeftStick = 0;
-        kill(pid[(philosopherNumber + numberOfPhilosophers - 1) % numberOfPhilosophers], SIGUSR2);
-    }
-    else
-    {
-        hasLeftStick = 0;
-        kill(pid[(philosopherNumber + numberOfPhilosophers - 1) % numberOfPhilosophers], SIGUSR2);
-        hasRightStick = 0;
-        kill(pid[(philosopherNumber + 1) % numberOfPhilosophers], SIGUSR1);
-    }
+    hasRightStick = 0;
+    kill(pid[(philosopherNumber + 1) % numberOfPhilosophers], SIGUSR1);
+    hasLeftStick = 0;
+    kill(pid[(philosopherNumber + numberOfPhilosophers - 1) % numberOfPhilosophers], SIGUSR2);
 }
 
 void solve()
