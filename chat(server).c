@@ -32,6 +32,7 @@ struct client
 
 struct mess
 {
+    int length;
     int clientNumber;
     int room;
     char * message;
@@ -41,13 +42,13 @@ struct mess arg;
 int activeUsers;
 int rooms[MAX_NUMBER_OF_ROOMS];
 struct client clients[MAX_NUMBER_OF_CLIENTS];
-pthread_mutex_t writeMutex;
+pthread_mutex_t writeMutex, newClientMutex;
 
 struct mess * readMessageFrom(int sock)
 {
     int lengthOfMessage, roomOfSender;
-    printf("reading...\n");
     recv(sock, &lengthOfMessage, sizeof(int), 0);
+    printf("lengthOfMessage = %d\n", lengthOfMessage);
     recv(sock, &roomOfSender, sizeof(int), 0);
 	struct mess * message = malloc(sizeof(struct mess));
 	message->room = roomOfSender;
@@ -59,22 +60,15 @@ struct mess * readMessageFrom(int sock)
         nextPart = recv(sock, currMessage + alreadyRead, lengthOfMessage - alreadyRead, 0);
         alreadyRead += nextPart;
 	}
+	message->length = lengthOfMessage;
 	message->message = currMessage;
-	printf("%d\n", lengthOfMessage);
-	printf("%s\n", currMessage);
-	if (currMessage[0] == '-')
-    {
-        printf("putting is in process...\n");
-        rooms[lengthOfMessage] = roomOfSender;
-        return NULL;
-    }
     return message;
 }
 
 void * sendMessage (void * _arg)
 {
     char * message = (*(struct mess *)_arg).message;
-    int lengthOfMessage = strlen(message);
+    int lengthOfMessage = (*(struct mess *)_arg).length;
     int numberOfRoom = (*(struct mess *)_arg).room;
     int numberOfSender = (*(struct mess *)_arg).clientNumber;
     char * nameOfSender = clients[numberOfSender].name;
@@ -86,7 +80,6 @@ void * sendMessage (void * _arg)
         currRoom = rooms[currRoom];
         numberOfRooms++;
     }
-    //printf("room number finded and it equal to %d!\n", numberOfRooms);
     currRoom = numberOfRoom;
     pthread_mutex_lock(&writeMutex);
     for (int i = 0; i < MAX_NUMBER_OF_CLIENTS; i++)
@@ -120,13 +113,58 @@ void * sendMessage (void * _arg)
     pthread_mutex_unlock(&writeMutex);
 }
 
-void sendToAll(int numberOfSender, int numberOfRoom, char * message)
+void * newClient(void * args)
 {
-    arg.clientNumber = numberOfSender;
-    arg.room = numberOfRoom;
-    arg.message = message;
-    pthread_t sender;
-    pthread_create(&sender, NULL, sendMessage, (void *)&arg);
+    int sock = *(int*)args;
+    pthread_mutex_lock(&newClientMutex);
+    for(int j = 0; j < MAX_NUMBER_OF_CLIENTS; j++)
+    {
+        if(clients[j].sock == -1)
+        {
+            clients[j].sock = sock;
+            printf("#%d connected\n", j);
+            break;
+        }
+    }
+    activeUsers++;
+    pthread_mutex_unlock(&newClientMutex);
+}
+
+void * messegeWorker(void * args)
+{
+    int numberOfSender = 0, sock = *(int*)args;
+    for(int j = 0; j < MAX_NUMBER_OF_CLIENTS; j++)
+    {
+        if(clients[j].sock == sock)
+        {
+            numberOfSender = j;
+            break;
+        }
+    }
+    struct mess * readMessage = readMessageFrom(sock);
+    printf("%s\n", readMessage->message);
+    if (readMessage != NULL)
+    {
+        if (clients[numberOfSender].name == NULL)
+        {
+            pthread_mutex_lock(&newClientMutex);
+            printf("length of name = %d\n", readMessage->length);
+            clients[numberOfSender].name = malloc(readMessage->length);
+            memset(clients[numberOfSender].name, ' ', readMessage->length);
+            memcpy(clients[numberOfSender].name, readMessage->message, readMessage->length);
+            pthread_mutex_unlock(&newClientMutex);
+            printf("%s connected\n", clients[numberOfSender].name);
+        }
+        else
+        {
+            arg.clientNumber = numberOfSender;
+            arg.room = readMessage->room;
+            arg.length = readMessage->length;
+            arg.message = readMessage->message;
+            sendMessage((void*)&arg);
+        }
+    }
+    free(readMessage);
 }
 
 int main(int argc, char ** argv)
@@ -149,11 +187,12 @@ int main(int argc, char ** argv)
     addr.sin_addr.s_addr = inet_addr(argv[1]);
     for(int i = 0; i < MAX_NUMBER_OF_CLIENTS; i++)
     {
+        clients[i].name = NULL;
         clients[i].sock = -1;
     }
     for (int i = 0; i < MAX_NUMBER_OF_ROOMS; i++)
     {
-        rooms[i] = -1;
+        rooms[i] = i - 1;
     }
     if(bind(sockDescr, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
@@ -200,17 +239,8 @@ int main(int argc, char ** argv)
                     detectError("accept failed");
                     return 0;
                 }
-                for(int j = 0; j < MAX_NUMBER_OF_CLIENTS; j++)
-                {
-                	if(clients[j].sock == -1)
-                	{
-                        clients[j].name = (readMessageFrom(sock))->message;
-                        fprintf(stderr, "%s connected\n", clients[j].name);
-                	    clients[j].sock = sock;
-                		activeUsers++;
-                		break;
-                	}
-                }
+                pthread_t newClientWorker;
+                pthread_create(&newClientWorker, NULL, newClient, (void *)&sock);
                 ev.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
                 ev.data.fd = sock;
                 if (epoll_ctl(epollFD, EPOLL_CTL_ADD, sock, &ev) == -1)
@@ -231,29 +261,14 @@ int main(int argc, char ** argv)
                 			activeUsers--;
                 			fprintf(stderr, "%s disconnected\n", clients[j].name);
                 			free(clients[j].name);
+                			clients[j].name = NULL;
                 			break;
                 		}
                 	}
                     continue;
                 }
-                int numberOfSender = 0;
-                for(int j = 0; j < MAX_NUMBER_OF_CLIENTS; j++)
-                {
-                    if(clients[j].sock == sock)
-                    {
-                        numberOfSender = j;
-                        break;
-                    }
-                }
-        		struct mess * readMessage = readMessageFrom(sock);
-        		if (readMessage == NULL)
-                    continue;
-        		int currRoom = readMessage->room;
-                int lengthOfMessage = strlen(readMessage->message);
-                char *message = readMessage->message;
-        		free(readMessage);
-        		printf("%s\n", message);
-        		sendToAll(numberOfSender, currRoom, message);
+                pthread_t messageWorker;
+                pthread_create(&messageWorker, NULL, messegeWorker, (void *)&sock);
             }
         }
     }
