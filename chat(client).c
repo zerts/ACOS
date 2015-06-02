@@ -62,7 +62,7 @@ void parse_command(char * input)
                 return;
             }
         }
-        if (numberOfRoom < 0)
+        if (numberOfRoom < 0 || numberOfRoom >= MAX_NUMBER_OF_ROOMS)
         {
             printf("bad room number\n");
             return;
@@ -85,37 +85,10 @@ void parse_command(char * input)
         }
         currRoom = numberOfRoom;
     }
-    else if (strstr(input, "-put_room") != NULL)
+    else
     {
-        char * numberStr = input + 12;
-        int numberOfRoom = atoi(numberStr);
-        printf("And in which room?\n");
-        char biggerRoomStr[3];
-        int biggerRoom = atoi(biggerRoomStr);
-        pthread_mutex_lock(&forWrite);
-        int alreadySend = 0, nextPart;
-        while (sizeof(int) > alreadySend)
-        {
-            nextPart = send(sock, &numberOfRoom + alreadySend, sizeof(int) - alreadySend, 0);
-            alreadySend += nextPart;
-        }
-        alreadySend = 0;
-        while (sizeof(int) > alreadySend)
-        {
-            nextPart = send(sock, &biggerRoom + alreadySend, sizeof(int) - alreadySend, 0);
-            alreadySend += nextPart;
-        }
-        alreadySend = 0;
-        char * output = malloc((numberOfRoom + 1) * sizeof(char));
-        for (int i = 0; i < numberOfRoom; i++)
-            output[i] = '0';
-        output[numberOfRoom] = '\0';
-        while (numberOfRoom + 1 > alreadySend)
-        {
-            nextPart = send(sock, output + alreadySend, numberOfRoom - alreadySend + 1, 0);
-            alreadySend += nextPart;
-        }
-        pthread_mutex_unlock(&forWrite);
+        printf("bad room number\n");
+        return;
     }
 }
 
@@ -129,7 +102,7 @@ int inRoom(int room)
     return 0;
 }
 
-int listenTheMessage(int currSock, char * senderName, char * buf, int flag)
+int listenTheMessage(int currSock, char ** senderName, char * buf, int flag)
 {
     int messageLength = 0, nameLength = 0;
     int alreadyRead = 0;
@@ -157,6 +130,7 @@ int listenTheMessage(int currSock, char * senderName, char * buf, int flag)
         }
         curr += nextPart;
     }
+    *senderName = malloc(nameLength * sizeof(char));
     curr = 0;
     int numberOfGoodRooms, room;
     while (curr < sizeof(int))
@@ -188,7 +162,7 @@ int listenTheMessage(int currSock, char * senderName, char * buf, int flag)
     }
     while (curr < nameLength)
     {
-        int nextPart = recv(currSock, senderName + curr, nameLength - curr, flag);
+        int nextPart = recv(currSock, *senderName + curr, nameLength - curr, flag);
         if (nextPart < 0)
         {
             detectError("recv failed");
@@ -215,18 +189,24 @@ int listenTheMessage(int currSock, char * senderName, char * buf, int flag)
 void * listenAll(void * args)
 {
     int currSock = *(int *)(args);
-    char buf[BUF_SIZE], senderName[MAX_NAME_SIZE];
+    char buf[BUF_SIZE], * senderName;
     while (1)
     {
-        int retVal = listenTheMessage(currSock, senderName, buf, 0);
+        int retVal = listenTheMessage(currSock, &senderName, buf, 0);
         if(retVal != -1)
-            printf("room #%d, user \"%s\": %s\n", retVal, senderName, buf);
+            printf("user \"%s\": %s\n", senderName, buf);
+        free(senderName);
     }
     return NULL;
 }
 
 int main(int argc, char ** argv)
 {
+    if (argc < 4)
+    {
+        detectError("a few args");
+        return 0;
+    }
     name = malloc(30 * sizeof(char));
     name = argv[1];
     struct sockaddr_in addr;
@@ -239,7 +219,7 @@ int main(int argc, char ** argv)
     addr.sin_family = AF_INET;
     addr.sin_port = htons(atoi(argv[3]));
     addr.sin_addr.s_addr = inet_addr(argv[2]);
-    if(connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
         detectError("connect failed");
         exit(2);
@@ -248,6 +228,7 @@ int main(int argc, char ** argv)
     currRoom = -1;
     numberOfRooms = 0;
     sendMessage(sock, name, strlen(name), 0);
+    //printf("name = %s\n", name);
     printf("Hello!\nNow choose your room with \"-get_room (number)\"\n");
     char input[1024];
     while (rooms[0] == -1)
