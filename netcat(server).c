@@ -145,7 +145,7 @@ void * worker (void * _arg)
     for (int i = 100; i < 200; i++)
         sendto(fd, &i, sizeof(int), 0, (struct sockaddr *)&claddr, addrsize);
     pthread_mutex_unlock(&writeMutex);
-    ready = 1;
+    return NULL;
 }
 
 int workWithClient (struct sockaddr_in claddr)
@@ -154,10 +154,10 @@ int workWithClient (struct sockaddr_in claddr)
 
     pthread_t newWorker;
     pthread_create(&newWorker, NULL, worker, (void *)&claddr);
-
-    while (1)
+    pthread_join(newWorker, NULL);
+   /* while (1)
         if (ready != 0)
-            break;
+            break;*/
     return 1;
 }
 
