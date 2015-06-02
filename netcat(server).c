@@ -16,7 +16,7 @@
 
 #define MAX_NUMBER_OF_CLIENTS 128
 #define MAX_NUMBER_OF_QUERIES 20
-#define NUMBER_OF_PARTS 10
+#define SIZE_OF_PART 100
 
 extern int errno;
 
@@ -34,86 +34,62 @@ struct mess
 
 struct client
 {
-    int sock;
+    struct sockaddr_in addr;
     char * fileName;
 };
 
-struct queque
-{
-    int begin, end;
-    struct client * clients;
-};
-
-void que_init(struct queque * que)
-{
-    que->clients = malloc(MAX_NUMBER_OF_CLIENTS * sizeof(struct client));
-    que->begin = 0;
-    que->end = 0;
-}
-
+char * path;
+int addrsize;
+socklen_t addrlen;
 struct client arg;
 int activeUsers;
-struct queque clients;
+int numberOfParts;
+int ready, fd;
 pthread_mutex_t writeMutex, readMutex;
 
-struct client * readMessageFrom(int sock)
+void readFromFile(struct sockaddr_in claddr, char * fileName)
 {
-    int lengthOfMessage;
-    //printf("reading...\n");
-    recv(sock, &lengthOfMessage, sizeof(int), 0);
-	struct client * message = malloc(sizeof(struct client));
-	char * currMessage = (char *) malloc(lengthOfMessage + 1);
-	currMessage[0] = '\0';
-	int alreadyRead = 0, nextPart;
-	while (alreadyRead < lengthOfMessage)
-	{
-        nextPart = recv(sock, currMessage + alreadyRead, lengthOfMessage - alreadyRead, 0);
-        alreadyRead += nextPart;
-	}
-	message->fileName = currMessage;
-	//printf("%d\n", lengthOfMessage);
-	//printf("%s\n", currMessage);
-    return message;
-}
-
-void readFromFile(int sock, char * fileName)
-{
-    char * parts[NUMBER_OF_PARTS];
-    int numberOfReadyPart = 0;
-    int readyParts[NUMBER_OF_PARTS];
-    for (int i = 0; i < NUMBER_OF_PARTS; i++)
-        readyParts[i] = 0;
-
     int lengthOfFile;
     //printf("reading...\n");
     //printf("i'm ready for reading a file!\n");
-    recv(sock, &lengthOfFile, sizeof(int), 0);
-    int sizeOfParts[NUMBER_OF_PARTS];
-    for (int i = 0; i < NUMBER_OF_PARTS; i++)
+    recvfrom(fd, &lengthOfFile, sizeof(int), 0, (struct sockaddr *)&claddr, &addrlen);
+    printf("size of file = %d\n", lengthOfFile);
+    numberOfParts = lengthOfFile / SIZE_OF_PART;
+    if (numberOfParts == 0 && lengthOfFile != 0)
+        numberOfParts = 1;
+
+    int sizeOfParts[numberOfParts];
+    char * parts[numberOfParts];
+    int numberOfReadyPart = 0;
+    int readyParts[numberOfParts];
+
+    for (int i = 0; i < numberOfParts; i++)
+        readyParts[i] = 0;
+    for (int i = 0; i < numberOfParts; i++)
     {
-        if (i != NUMBER_OF_PARTS - 1)
-            sizeOfParts[i] = lengthOfFile / NUMBER_OF_PARTS;
+        if (i != numberOfParts - 1)
+            sizeOfParts[i] = SIZE_OF_PART;
         else
-            sizeOfParts[i] = lengthOfFile - (lengthOfFile / NUMBER_OF_PARTS) * (NUMBER_OF_PARTS - 1);
+            sizeOfParts[i] = lengthOfFile - SIZE_OF_PART * (numberOfParts - 1);
         parts[i] = malloc(sizeOfParts[i] * sizeof(char));
         //printf("size of part #%d = %d\n", i, sizeOfParts[i]);
     }
-	//char * currFile = (char *) malloc(lengthOfFile + 1);
-	//currFile[0] = '\0';
-	printf("i'm ready for reading parts!\n");
-	while (numberOfReadyPart < NUMBER_OF_PARTS)
+
+	//printf("i'm ready for reading parts! In number of %d\n", numberOfParts);
+	while (numberOfReadyPart < numberOfParts)
 	{
         ///bad connection!!!
         if (rand() % 2)
             continue;
         pthread_mutex_lock(&readMutex);
         int numberOfPart;
-        recv(sock, &numberOfPart, sizeof(int), 0);
+        recvfrom(fd, &numberOfPart, sizeof(int), 0, (struct sockaddr *)&claddr, &addrlen);
         //printf("i'm start to reading part #%d!\n", numberOfPart);
         int alreadyRead = 0, nextPart;
         while (alreadyRead < sizeOfParts[numberOfPart])
         {
-            nextPart = recv(sock, parts[numberOfPart] + alreadyRead, sizeOfParts[numberOfPart] - alreadyRead, 0);
+            nextPart = recvfrom(fd, parts[numberOfPart] + alreadyRead, sizeOfParts[numberOfPart] - alreadyRead, 0,
+                                (struct sockaddr *)&claddr, &addrlen);
             alreadyRead += nextPart;
         }
         //printf("i've read part #%d\n", numberOfPart);
@@ -122,53 +98,67 @@ void readFromFile(int sock, char * fileName)
             readyParts[numberOfPart]++;
             numberOfReadyPart++;
         }
-        send(sock, &numberOfPart, sizeof(int), 0);
+        sendto(fd, &numberOfPart, sizeof(int), 0, (struct sockaddr *)&claddr, addrsize);
         pthread_mutex_unlock(&readMutex);
         //printf("i've finish part #%d\n", numberOfPart);
     }
 	int alreadyCopy = 0;
-	printf("i'm ready for make a full file!\n");
-	int fd = open(fileName, O_CREAT | O_RDWR, 0777);
+    char * pathOfFile = malloc(strlen(path) + strlen(fileName) + 1);
+    sprintf(pathOfFile, "%s%s", path, fileName);
+	printf("i'm ready for make a full file into %s\n", pathOfFile);
+	int fileDescr = open(pathOfFile, O_CREAT | O_RDWR, 0777);
 	int alreadyWrite = 0, nextPart;
-	for (int i = 0; i < NUMBER_OF_PARTS; i++)
+	for (int i = 0; i < numberOfParts; i++)
 	{
+        //printf("i've started to write a part #%d!\n", i);
         alreadyWrite = 0;
         while (alreadyWrite < sizeOfParts[i])
         {
-            nextPart = write(fd, parts[i] + alreadyWrite, sizeOfParts[i] - alreadyWrite);
+            //printf("alreadyWrite = %d\n", alreadyWrite);
+            nextPart = write(fileDescr, parts[i] + alreadyWrite, sizeOfParts[i] - alreadyWrite);
             alreadyWrite += nextPart;
         }
-        //sprintf(currFile + alreadyCopy, "%s", parts[i]);
         alreadyCopy += sizeOfParts[i];
         free(parts[i]);
 	}
+    free(pathOfFile);
 	printf("i've write a file!\n");
-	//free(currFile);
-	close(fd);
+	close(fileDescr);
 }
 
-void * workWithClient (void * _arg)
+void * worker (void * _arg)
 {
-    char * fileName = (*(struct client *)_arg).fileName;
-    int sockOfClient = (*(struct client *)_arg).sock;
-    //printf("fileName = %s\n", fileName);
+    int filenameLength;
+    struct sockaddr_in claddr = *(struct sockaddr_in *)_arg;
+
+    recvfrom(fd, &filenameLength, sizeof(int), 0, (struct sockaddr *)&claddr, &addrlen);
+    char * fileName = malloc(filenameLength * sizeof(char));
+    recvfrom(fd, fileName, filenameLength, 0, (struct sockaddr *)&claddr, &addrlen);
+    printf("fileName = %s\n", fileName);
+
     pthread_mutex_lock(&writeMutex);
     int readyCode = -2;
     int finishCode = -3;
     for (int i = 0; i < 100; i++)
-        send(sockOfClient, &readyCode, sizeof(int), 0);
-    readFromFile(sockOfClient, fileName);
+        sendto(fd, &readyCode, sizeof(int), 0, (struct sockaddr *)&claddr, addrsize);
+    readFromFile(claddr, fileName);
     for (int i = 100; i < 200; i++)
-        send(sockOfClient, &i, sizeof(int), 0);
+        sendto(fd, &i, sizeof(int), 0, (struct sockaddr *)&claddr, addrsize);
     pthread_mutex_unlock(&writeMutex);
+    ready = 1;
 }
 
-void getFile(struct client currClient)
+int workWithClient (struct sockaddr_in claddr)
 {
-    arg.sock = currClient.sock;
-    arg.fileName = currClient.fileName;
-    pthread_t sender;
-    pthread_create(&sender, NULL, workWithClient, (void *)&arg);
+    ready = 0;
+
+    pthread_t newWorker;
+    pthread_create(&newWorker, NULL, worker, (void *)&claddr);
+
+    while (1)
+        if (ready != 0)
+            break;
+    return 1;
 }
 
 int main(int argc, char ** argv)
@@ -179,114 +169,35 @@ int main(int argc, char ** argv)
         fprintf(stderr, "Usage host port\n");
         return 0;
     }
-    int sockDescr = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockDescr < 0)
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0)
     {
         detectError("socket failed");
         return 0;
     }
-    que_init(&clients);
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    char * path = argv[3];
-    addr.sin_port = htons(atoi(argv[2]));
-    addr.sin_addr.s_addr = inet_addr(argv[1]);
-    for(int i = 0; i < MAX_NUMBER_OF_CLIENTS; i++)
-    {
-        clients.clients[i].sock = -1;
-    }
-    if(bind(sockDescr, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    struct sockaddr_in myaddr;
+    myaddr.sin_family = AF_INET;
+    path = argv[3];
+    myaddr.sin_port = htons(atoi(argv[2]));
+    myaddr.sin_addr.s_addr = inet_addr(argv[1]);
+    addrlen = sizeof(myaddr);
+    addrsize = sizeof myaddr;
+    if(bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
     {
         detectError("bind failed");
         return 0;
     }
 
-    listen(sockDescr, MAX_NUMBER_OF_QUERIES);
-
-    struct epoll_event ev, events[MAX_NUMBER_OF_CLIENTS];
-    int epollFD = epoll_create(MAX_NUMBER_OF_CLIENTS);
-    if (epollFD == -1)
-    {
-        detectError("epoll_create failed");
-        return 0;
-    }
-
-    ev.events = EPOLLIN;
-    ev.data.fd = sockDescr;
-    if (epoll_ctl(epollFD, EPOLL_CTL_ADD, sockDescr, &ev) == -1)
-    {
-        detectError("epoll_ctl failed");
-        return 0;
-    }
-
     while (1)
     {
-        int ndfs = epoll_wait(epollFD, events, MAX_NUMBER_OF_CLIENTS, -1);
-        if (ndfs == -1)
-        {
-            detectError("epoll_wait failed");
-            printf("vsyo3!\n");
-            return 0;
-        }
-
-        for (int i = 0; i < ndfs; ++i)
-        {
-            int sock = events[i].data.fd;
-            if (events[i].data.fd == sockDescr)
-            {
-                printf("new man\n");
-                sock = accept(sockDescr, NULL, NULL);
-                if(sock < 0)
-                {
-                    detectError("accept failed");
-                    printf("vsyo2!\n");
-                    return 0;
-                }
-                clients.clients[clients.end].fileName = malloc(strlen(path) + 30);
-                char * fileNameFromUser = (readMessageFrom(sock))->fileName;
-                sprintf(clients.clients[clients.end].fileName, "%s", path);
-                sprintf(clients.clients[clients.end].fileName + strlen(path), "%s", fileNameFromUser);
-                fprintf(stderr, "%s put in queque\n", clients.clients[clients.end].fileName);
-                clients.clients[clients.end].sock = sock;
-                activeUsers++;
-                clients.end = (clients.end + 1) % MAX_NUMBER_OF_CLIENTS;
-                if (clients.end == clients.begin)
-                {
-                    printf("to many clients!\n");
-                    sleep(1);
-                }
-                ev.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
-                ev.data.fd = sock;
-                if (epoll_ctl(epollFD, EPOLL_CTL_ADD, sock, &ev) == -1)
-                {
-                    detectError("epoll_ctl: conn_sock");
-                    printf("vsyo1!\n");
-                    return 0;
-                }
-            }
-            else
-            {
-               if (events[i].events & EPOLLRDHUP)
-               {
-                    for(int j = 0; j < MAX_NUMBER_OF_CLIENTS; j++)
-                    {
-                        if(clients.clients[j].sock == sock)
-                        {
-                            clients.clients[j].sock = -1;
-                            activeUsers--;
-                            fprintf(stderr, "%d done\n", j);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if (clients.begin != clients.end)
-        {
-            getFile(clients.clients[clients.begin]);
-            printf("client #%d done!\n", clients.begin);
-            clients.begin = (clients.begin + 1) % MAX_NUMBER_OF_CLIENTS;
-        }
+        struct sockaddr_in claddr;
+        myaddr.sin_family = AF_INET;
+        myaddr.sin_port = htons(atoi(argv[2]));
+        myaddr.sin_addr.s_addr = INADDR_ANY;
+        int signalOfReady;
+        recvfrom(fd, &signalOfReady, sizeof(int), 0, (struct sockaddr *)&claddr, &addrlen);
+        if (signalOfReady == 123)
+            while (workWithClient(claddr) != 1);
     }
     printf("vsyo!\n");
     return 0;
