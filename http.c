@@ -93,6 +93,18 @@ void sendAll(int sd, char *message)
     }
 }
 
+void writeError(FILE *sd, int status, char *typeOfFile, char *message)
+{
+    int printed = fprintf(sd, "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\n\r\n", status, statuses[status], typeOfFile, strlen(message));
+    printed = fprintf(sd, "%s\r\nConnection: Close\r\n", message);
+    if (fflush(sd) == EOF)
+    {
+        detectError("fflush failed");
+        exit(0);
+    }
+    fprintf(stderr, "ready\n");
+}
+
 void sendFile(FILE *sd, char *path)
 {
     int curr = 0;
@@ -102,8 +114,9 @@ void sendFile(FILE *sd, char *path)
     {
         if (curr == -1)
         {
-            detectError("read failed");
-            exit(1);
+            //writeError(sd, 403, "text/html", FORBIDDEN);
+            errno = 0;
+            return;
         }
         if (curr * sizeof(char) != fwrite(buf, sizeof(char), curr, sd))
         {
@@ -119,18 +132,6 @@ void sendFile(FILE *sd, char *path)
     }
     fprintf(stderr, "SENDED\n");
 
-}
-
-void writeError(FILE *sd, int status, char *typeOfFile, char *message)
-{
-    int printed = fprintf(sd, "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\n\r\n", status, statuses[status], typeOfFile, strlen(message));
-    printed = fprintf(sd, "%s\r\nConnection: Close\r\n", message);
-    if (fflush(sd) == EOF)
-    {
-        detectError("fflush failed");
-        exit(0);
-    }
-    fprintf(stderr, "ready\n");
 }
 
 void *worker (void *args)
@@ -204,10 +205,12 @@ void *worker (void *args)
                 filePath[i + 1] = filePath[i];
             filePath[0] = '.';
             filePath[1] = '/';
-            printf("!%s\n", filePath);
+            printf("%s\n", filePath);
             struct stat fileInfo;
+            printf("%d\n", lstat(filePath, &fileInfo));
             if (lstat(filePath, &fileInfo) == -1)
             {
+                printf("bad file errno = %d!\n", errno);
                 if (errno == EACCES)
                 {
                     writeError(outFile, 403, "text/html", FORBIDDEN);
@@ -224,7 +227,13 @@ void *worker (void *args)
                     exit(0);
                 }
             }
-            else if (!(S_ISDIR(fileInfo.st_mode & S_IFMT)))
+            else if (access(filePath, R_OK) == -1)
+            {
+                    writeError(outFile, 403, "text/html", FORBIDDEN);
+                    errno = 0;
+
+            }
+            else if (S_ISDIR(fileInfo.st_mode & S_IFMT) == 0)
                     sendFile(outFile, filePath);
 
             fclose(buff);
