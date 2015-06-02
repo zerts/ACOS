@@ -20,6 +20,7 @@ const size_t NUMBER_OF_PIPES;
 int fdescr;
 extern int errno;
 int number_of_pipes = 1;
+void * addr;
 
 struct shared_memory
 {
@@ -54,7 +55,7 @@ void create_pipe(struct shared_memory ** fd)
         detectError("ftruncate failed");
         return;
     }
-    void * addr = mmap(NULL, sizeof(struct shared_memory) + SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fdescr, 0);
+    addr = mmap(NULL, sizeof(struct shared_memory) + SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fdescr, 0);
     if (addr == MAP_FAILED)
     {
         detectError("mmap faild");
@@ -104,33 +105,6 @@ void deletePipe(struct shared_memory * fd)
     sem_destroy(fd->semRead);
 }
 
-
-void writeToPipe(struct shared_memory * fd, char * buf, size_t size_of_buf)
-{
-    if (sem_wait(fd->semWrite) == -1)
-    {
-        detectError("sem_wait in writeToPipe failed");
-        return;
-    }
-    for (size_t tab = 0; tab < size_of_buf; tab++)
-    {
-        if (*(fd->end) == SHM_SIZE)
-        {
-            *(fd->end) = 0;
-        }
-        //printf("%d\n", *(fd->end));
-        (fd->buf)[*(fd->end)] = buf[tab];
-        //printf("%d = %c\n", *(fd->end), (fd->buf)[*(fd->end)]);
-        //fflush(stdout);
-        *(fd->end) += 1;
-    }
-    if (sem_post(fd->semWrite) == -1)
-    {
-        detectError("sem_post in writeToPipe failed");
-        return;
-    }
-}
-
 size_t sizeOfPipe(struct shared_memory * fd)
 {
     int result = *(fd->end) - *(fd->begin);
@@ -139,6 +113,31 @@ size_t sizeOfPipe(struct shared_memory * fd)
         result += SHM_SIZE;
     }
     return result;
+}
+
+size_t writeToPipe(struct shared_memory * fd, char * buf, size_t size_of_buf)
+{
+    if (sem_wait(fd->semWrite) == -1)
+    {
+        detectError("sem_wait in writeToPipe failed");
+        return;
+    }
+    size_t tab;
+    for (tab = 0; tab < size_of_buf && sizeOfPipe(fd) != SHM_SIZE; tab++)
+    {
+        if (*(fd->end) == SHM_SIZE)
+        {
+            *(fd->end) = 0;
+        }
+        (fd->buf)[*(fd->end)] = buf[tab];
+        *(fd->end) += 1;
+    }
+    if (sem_post(fd->semWrite) == -1)
+    {
+        detectError("sem_post in writeToPipe failed");
+        return;
+    }
+    return tab;
 }
 
 int readFromPipe(struct shared_memory * fd, char * buf, size_t size_of_part_to_read)
@@ -185,15 +184,21 @@ int main()
     char a = '1';
     int total = 1000 * strlen(STRING_TO_WRITE), already_done = 0;
     pid_t t = fork();
+    int alreadyWrite = 0;
     if (t == 0)
     {
         for (int i = 0; i < 1000; i++)
         {
-            writeToPipe(fd, STRING_TO_WRITE, strlen(STRING_TO_WRITE));
+            while (alreadyWrite < total)
+            {
+                alreadyWrite += writeToPipe(fd, STRING_TO_WRITE, strlen(STRING_TO_WRITE));
+                //sprintf("alreadyWrite = %d\n", alreadyWrite);
+            }
         }
     }
     else
     {
+        sleep(1);
         //printf("%d\n", total);
         char * buf = malloc(total * sizeof(char));
         if (buf == NULL)
@@ -213,6 +218,7 @@ int main()
         //write(STDOUT_FILENO, buf, total);
         //printf("\n");
         printf("buf = %s\n", buf);
+        free(buf);
         deletePipe(fd);
         return 0;
     }
